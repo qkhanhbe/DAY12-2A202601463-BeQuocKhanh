@@ -16,7 +16,7 @@ Trong `Settings`, `agent_api_key` không có giá trị mặc định nên app c
 khi khởi động nếu thiếu biến môi trường. Hãy mô tả một tình huống cụ thể mà
 việc "chết sớm" này cứu bạn, so với việc để mặc định `"changeme"`.
 
-> *Câu trả lời của bạn*
+> Khi deploy lên cloud, nếu quên đặt `AGENT_API_KEY` mà code dùng mặc định `changeme`, service vẫn chạy và endpoint `/ask` có thể bị người lạ gọi bằng khóa đó. Không có default làm Pydantic dừng service ngay lúc start, nên tôi phát hiện thiếu secret trước khi service nhận traffic hoặc phát sinh chi phí.
 
 ---
 
@@ -26,7 +26,7 @@ Chạy service và gọi `/ask` vài lần. Dán một dòng log JSON bạn thu 
 nêu **hai** việc bạn làm được với dòng log đó mà `print("đã trả lời xong")`
 không làm được.
 
-> *Câu trả lời của bạn*
+> Log thực tế: `{"event":"ask_completed","level":"info","timestamp":"2026-08-10T04:40:47.055185+00:00","user_id":"rate-check","tokens_in":392,"tokens_out":43,"cost_usd":8.46e-05}`. Tôi có thể lọc/tổng hợp chi phí theo `user_id`, và tạo cảnh báo theo `cost_usd` hoặc tỷ lệ event lỗi. `print("đã trả lời xong")` không có field máy đọc được cho hai việc này.
 
 ---
 
@@ -42,12 +42,12 @@ docker images | grep agent
 
 | Bản | Dung lượng |
 |-----|-----------|
-| 1 stage (bản đầu) | ... MB |
-| Multi-stage | ... MB |
+| 1 stage (bản đầu) | 1.73 GB |
+| Multi-stage | 296 MB |
 
 Giải thích: phần dung lượng chênh lệch đó là những gì?
 
-> *Câu trả lời của bạn*
+> Chênh lệch chủ yếu là Python full image, toàn bộ build dependency và cache pip của bản một stage. Runtime multi-stage chỉ nhận package đã cài vào `/usr/local`, source `app`/`utils`, và base `python:3.11-slim`.
 
 ---
 
@@ -57,7 +57,7 @@ Sửa một ký tự trong `app/main.py` rồi build lại. Với Dockerfile c�
 layer nào được dùng lại từ cache, layer nào phải chạy lại? Nếu bạn đặt
 `COPY . .` lên trước `RUN pip install` thì kết quả khác thế nào?
 
-> *Câu trả lời của bạn*
+> Sửa `app/main.py` chỉ làm Docker chạy lại `COPY app` và các layer sau nó; layer `COPY requirements.txt` cùng `pip install` dùng cache. Nếu `COPY . .` đứng trước `pip install`, thay đổi một ký tự source làm hỏng cache ở `COPY . .`, nên Docker phải cài lại toàn bộ dependency.
 
 ---
 
@@ -67,7 +67,7 @@ Container mặc định chạy bằng root. Mô tả chuỗi sự kiện dẫn t
 trong code Python của bạn" tới "kẻ tấn công có quyền cao trên máy host", và
 lệnh `USER` cắt đứt chuỗi đó ở chỗ nào.
 
-> *Câu trả lời của bạn*
+> Lỗ hổng ứng dụng có thể cho kẻ tấn công chạy lệnh trong container. Nếu process là root, họ có quyền root trong container và có thể khai thác thêm lỗi cấu hình/kernel/mount để mở rộng ảnh hưởng sang host. `USER appuser` giảm quyền ngay sau khi process bị chiếm; lệnh chạy không còn quyền root để sửa file hệ thống hay cài tool đặc quyền.
 
 ---
 
@@ -78,7 +78,7 @@ phút đồng hồ (reset lúc giây 00), một người dùng có thể gửi t
 request trong 2 giây liên tiếp khi hạn mức là 10/phút? Giải thích cách đạt được
 con số đó.
 
-> *Câu trả lời của bạn*
+> Tối đa 20 request trong 2 giây: gửi 10 request lúc 10:00:59, rồi 10 request lúc 10:01:01. Bộ đếm theo phút reset tại 10:01:00 nên cả hai đợt đều dưới hạn mức. Sliding window giữ mọi request của 60 giây gần nhất nên đợt hai bị chặn.
 
 ---
 
@@ -87,7 +87,7 @@ con số đó.
 Hai cơ chế này khác nhau ở điểm nào? Cho một tình huống mà rate limit cho qua
 nhưng cost guard phải chặn, và một tình huống ngược lại.
 
-> *Câu trả lời của bạn*
+> Rate limit giới hạn nhịp gọi; cost guard giới hạn tổng tiền theo user/tháng. User gửi 10 request/phút đúng hạn mức nhưng mỗi request 50.000 token: rate limit cho qua, cost guard phải chặn khi vượt budget. Ngược lại, user spam 11 request rẻ trong vài giây khi mới tiêu 0 USD: cost guard còn cho qua nhưng rate limit trả 429.
 
 ---
 
@@ -96,7 +96,7 @@ nhưng cost guard phải chặn, và một tình huống ngược lại.
 Nếu gộp hai endpoint làm một và cho nó kiểm tra Redis, chuyện gì xảy ra với cụm
 3 container khi Redis mất kết nối 30 giây? Trả lời theo đúng thứ tự sự kiện.
 
-> *Câu trả lời của bạn*
+> Redis mất kết nối làm endpoint gộp trả 503 từ cả 3 container. Orchestrator coi 503 là lỗi liveness, restart cả 3 container; trong lúc Redis chỉ mất 30 giây thì toàn bộ instance bị rút/restart, có thể kéo dài outage. Tách `/health` giữ process sống, còn `/ready` chỉ bảo load balancer ngừng gửi traffic vào instance chưa dùng được.
 
 ---
 
@@ -106,7 +106,7 @@ Chạy `docker compose up --scale agent=3` rồi gọi `/ask` nhiều lần vớ
 `X-User-Id`. Quan sát `history_length` trong response. Nếu lịch sử được lưu
 trong một dict Python thay vì Redis, bạn sẽ thấy con số đó thay đổi thế nào?
 
-> *Câu trả lời của bạn*
+> Tôi chạy `docker compose up --scale agent=3` qua Nginx. `history_length` vẫn tăng thêm 2 sau mỗi lượt cho cùng `X-User-Id`, kể cả khi Nginx đổi instance; đây là vì Redis dùng chung. Nếu dùng dict Python, mỗi instance chỉ thấy lịch sử trong RAM của nó: khi request rơi vào instance khác, `history_length` có thể quay về 0 hoặc nhỏ hơn ngẫu nhiên.
 
 ---
 
@@ -116,4 +116,4 @@ Ghi lại **một** lỗi bạn gặp khi deploy lên cloud (build fail, health 
 timeout, sai REDIS_URL, app không đọc `$PORT`...): thông báo lỗi là gì, bạn
 tìm ra nguyên nhân bằng cách nào, và sửa ra sao?
 
-> *Câu trả lời của bạn*
+> Khi build thử bản Dockerfile một stage với file Dockerfile nằm ngoài build context, Docker báo `failed to xattr ... permission denied`. Tôi kiểm tra log build và thấy Docker đang đọc file ở `/tmp`; chuyển Dockerfile tạm vào đúng thư mục build context rồi build lại. Bản multi-stage chính thức build thành công, image 296 MB, `/health` và `/ready` đều 200 trên Docker Compose.
