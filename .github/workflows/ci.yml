@@ -24,11 +24,17 @@ jobs:
 
   deploy:
     needs: [test, build]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.RAILWAY_TOKEN != ''
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    env:
+      HAS_RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
-      - run: npm install --global @railway/cli
-      - run: railway up --ci
+      - if: env.HAS_RAILWAY_TOKEN == 'true'
+        run: npm install --global @railway/cli
+      - if: env.HAS_RAILWAY_TOKEN == 'true'
+        run: railway up --ci
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      - if: env.HAS_RAILWAY_TOKEN != 'true'
+        run: 'echo "Deploy skipped: add RAILWAY_TOKEN in GitHub Actions secrets."'
