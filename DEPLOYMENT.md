@@ -8,7 +8,7 @@
 |---|---|
 | Họ và tên | Bế Quốc Khánh |
 | Mã học viên | 2A202601463 |
-| Repo | https://github.com/qkhanhbe/DAY12-2A202601463-BeQuocKhanh |
+| Repo | https://github.com/qkhanhbe/K3-DAY12-2A202601463-BeQuocKhanh |
 
 ## Service
 
